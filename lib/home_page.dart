@@ -21,7 +21,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   String? _geoJsonData;
   final MapController _mapController = MapController();
-  String selectedFlatType = '3 ROOM';
+  String selectedFlatType = '2 ROOM';
   final List<String> flatTypes = [
     '2 ROOM', '3 ROOM', '4 ROOM', '5 ROOM', 'EXECUTIVE'
   ];
@@ -35,18 +35,9 @@ class _MyHomePageState extends State<MyHomePage> {
     Color(0xFFB71C1C),
   ];
 
-  // Helper to extract avg_price values from polygons
-  List<double> _extractAvgPrices() {
-    return _polygonProperties
-        .map((p) => p['avg_price'])
-        .where((v) => v != null && v is num && v > 0)
-        .map((v) => (v as num).toDouble())
-        .toList();
-  }
 
   late final GeoJsonParser _geoJsonParser;
 
-  // Added this line
   List<Map<String, dynamic>> _polygonProperties = [];
 
   @override
@@ -78,6 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       },
     );
+    _loadGeoJson();
     _loadGeoJson();
   }
 
@@ -148,6 +140,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       setState(() {
                         selectedFlatType = type;
                       });
+                      _loadGeoJson();
                       _loadGeoJson();
                     },
                   ),
