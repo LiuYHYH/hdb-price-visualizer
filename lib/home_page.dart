@@ -5,6 +5,9 @@ import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:hdb_price_visualizer/widgets/legend_widget.dart';
+import 'package:hdb_price_visualizer/widgets/map_widget.dart';
+import 'package:hdb_price_visualizer/widgets/flat_type_dropdown.dart';
+import 'package:hdb_price_visualizer/utils/color_scale.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -18,69 +21,91 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   String? _geoJsonData;
   final MapController _mapController = MapController();
+  String selectedFlatType = '3 ROOM';
+  final List<String> flatTypes = [
+    '2 ROOM', '3 ROOM', '4 ROOM', '5 ROOM', 'EXECUTIVE'
+  ];
 
-  // Helper to get color based on avg_price
-  Color _getPriceColor(double avgPrice) {
-    if (avgPrice <= 0.0) {
-      return Colors.grey.shade400.withOpacity(0.7);
-    } else if (avgPrice < 400000) {
-      return const Color(0xFFFFCDD2).withOpacity(0.7);
-    } else if (avgPrice < 450000) {
-      return const Color(0xFFEF9A9A).withOpacity(0.7);
-    } else if (avgPrice < 500000) {
-      return const Color(0xFFE57373).withOpacity(0.7);
-    } else if (avgPrice < 550000) {
-      return const Color(0xFFEF5350).withOpacity(0.7);
-    } else if (avgPrice < 600000) {
-      return const Color(0xFFF44336).withOpacity(0.7);
-    } else if (avgPrice < 650000) {
-      return const Color(0xFFD32F2F).withOpacity(0.7);
-    } else {
-      return const Color(0xFFB71C1C).withOpacity(0.7);
-    }
+  List<double> _bands = [];
+  final List<Color> _bandColors = [
+    Color(0xFFFFCDD2),
+    Color(0xFFEF9A9A),
+    Color(0xFFE57373),
+    Color(0xFFD32F2F),
+    Color(0xFFB71C1C),
+  ];
+
+  // Helper to extract avg_price values from polygons
+  List<double> _extractAvgPrices() {
+    return _polygonProperties
+        .map((p) => p['avg_price'])
+        .where((v) => v != null && v is num && v > 0)
+        .map((v) => (v as num).toDouble())
+        .toList();
   }
-  // Initialize GeoJsonParser with corrected polygonCreationCallback
- final GeoJsonParser _geoJsonParser = GeoJsonParser(
-    defaultPolygonBorderColor: Colors.black,
-    defaultPolygonBorderStroke: 1.0,
-    polygonCreationCallback: (List<LatLng> points, List<List<LatLng>>? holes, Map<String, dynamic> properties) {
-      double avgPrice = 0.0;
-      if (properties.containsKey('avg_price')) {
-        final priceValue = properties['avg_price'];
-        if (priceValue is num) {
-          avgPrice = priceValue.toDouble();
-        } else if (priceValue is String) {
-          avgPrice = double.tryParse(priceValue) ?? 0.0;
-        }
-      }
-      // Use the new color scale
-      Color fillColor = _MyHomePageState()._getPriceColor(avgPrice);
 
-      return Polygon(
-        points: points,
-        holePointsList: holes ?? [],
-        color: fillColor,
-        borderColor: Colors.black,
-        borderStrokeWidth: 1.0,
-      );
-    },
-  );
+  late final GeoJsonParser _geoJsonParser;
 
+  // Added this line
+  List<Map<String, dynamic>> _polygonProperties = [];
 
   @override
   void initState() {
     super.initState();
+    _geoJsonParser = GeoJsonParser(
+      defaultPolygonBorderColor: Colors.black,
+      defaultPolygonBorderStroke: 1.0,
+      polygonCreationCallback: (List<LatLng> points, List<List<LatLng>>? holes, Map<String, dynamic> properties) {
+        double avgPrice = 0.0;
+        if (properties.containsKey('avg_price')) {
+          final priceValue = properties['avg_price'];
+          if (priceValue is num) {
+            avgPrice = priceValue.toDouble();
+          } else if (priceValue is String) {
+            avgPrice = double.tryParse(priceValue) ?? 0.0;
+          }
+        }
+        Color fillColor = avgPrice > 0.0
+            ? getAutoScaledColor(avgPrice, _bands, _bandColors).withOpacity(0.5)
+            : Colors.grey.shade400.withOpacity(0.3);
+
+        return Polygon(
+          points: points,
+          holePointsList: holes ?? [],
+          color: fillColor,
+          borderColor: Colors.black,
+          borderStrokeWidth: 1.0,
+        );
+      },
+    );
     _loadGeoJson();
   }
 
   Future<void> _loadGeoJson() async {
     try {
-      // Load the GeoJSON file from assets
-      final String data = await rootBundle.loadString('assets/hdb_price_map_data.geojson');
+      String fileName = 'assets/hdb_price_map_${selectedFlatType.replaceAll(' ', '_').toLowerCase()}.geojson';
+      final String data = await rootBundle.loadString(fileName);
+      final geoJson = jsonDecode(data);
+
       setState(() {
         _geoJsonData = data;
-        // Parse the GeoJSON data
-        _geoJsonParser.parseGeoJson(jsonDecode(data));
+        _geoJsonParser.polygons.clear();
+        _geoJsonParser.polylines.clear();
+        _geoJsonParser.parseGeoJson(geoJson);
+
+        // Extract properties from features
+        _polygonProperties = (geoJson['features'] as List)
+            .map((f) => f['properties'] as Map<String, dynamic>)
+            .toList();
+
+        // Now extract avg_price from properties
+        final prices = _polygonProperties
+            .map((p) => p['avg_price'])
+            .where((v) => v != null && v is num && v > 0)
+            .map((v) => (v as num).toDouble())
+            .toList();
+
+        _bands = computeBands(prices, _bandColors.length);
       });
     } catch (e) {
       debugPrint('Error loading GeoJSON: $e');
@@ -101,32 +126,31 @@ class _MyHomePageState extends State<MyHomePage> {
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                FlutterMap(
+                HdbMapWidget(
                   mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: const LatLng(1.3521, 103.8198), // Center on Singapore
-                    initialZoom: 11.0,
-                    minZoom: 10.0,
-                    maxZoom: 15.0,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      subdomains: const ['a', 'b', 'c'],
-                      userAgentPackageName: 'com.example.hdb_price_visualizer',
-                    ),
-                    PolygonLayer(
-                      polygons: _geoJsonParser.polygons,
-                    ),
-                    PolylineLayer(
-                      polylines: _geoJsonParser.polylines,
-                    ),
-                  ],
+                  geoJsonParser: _geoJsonParser,
                 ),
-                const Positioned(
+                Positioned(
                   top: 10,
                   right: 10,
-                  child: LegendWidget(),
+                  child: LegendWidget(
+                    bands: _bands,
+                    colors: _bandColors,
+                  ),
+                ),
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: FlatTypeDropdown(
+                    selectedFlatType: selectedFlatType,
+                    flatTypes: flatTypes,
+                    onChanged: (type) {
+                      setState(() {
+                        selectedFlatType = type;
+                      });
+                      _loadGeoJson();
+                    },
+                  ),
                 ),
               ],
             ),
