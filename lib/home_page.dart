@@ -8,11 +8,12 @@ import 'package:hdb_price_visualizer/widgets/legend_widget.dart';
 import 'package:hdb_price_visualizer/widgets/map_widget.dart';
 import 'package:hdb_price_visualizer/widgets/flat_type_dropdown.dart';
 import 'package:hdb_price_visualizer/utils/color_scale.dart';
+import 'package:hdb_price_visualizer/widgets/onHover_label_widget.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
+
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -39,6 +40,9 @@ class _MyHomePageState extends State<MyHomePage> {
   late final GeoJsonParser _geoJsonParser;
 
   List<Map<String, dynamic>> _polygonProperties = [];
+  bool _showLabel = false;
+  Offset _labelPosition = Offset.zero;
+  Map<String, dynamic>? _tappedProperties;
 
   @override
   void initState() {
@@ -97,7 +101,11 @@ class _MyHomePageState extends State<MyHomePage> {
             .map((v) => (v as num).toDouble())
             .toList();
 
-        _bands = computeBands(prices, _bandColors.length);
+        if (prices.isNotEmpty) {
+          double min = prices.reduce((a, b) => a < b ? a : b);
+          double max = prices.reduce((a, b) => a > b ? a : b);
+          _bands = computeFriendlyBands(min, max, _bandColors.length);
+        }
       });
     } catch (e) {
       debugPrint('Error loading GeoJSON: $e');
@@ -108,29 +116,31 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: _geoJsonData == null
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                HdbMapWidget(
-                  mapController: _mapController,
-                  geoJsonParser: _geoJsonParser,
-                ),
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: LegendWidget(
-                    bands: _bands,
-                    colors: _bandColors,
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(
+      backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      title: Text(widget.title),
+    ),
+    body: Stack(
+      children: [
+        Expanded(
+              child: _geoJsonData == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : HdbMapWidget(
+                      mapController: _mapController,
+                      geoJsonParser: _geoJsonParser,
+                      polygonProperties: _polygonProperties,
+                      onPolygonHover: (properties, hoverPosition) { // Changed from onPolygonTap
+                        setState(() {
+                          _tappedProperties = properties;
+                          _labelPosition = hoverPosition;
+                          _showLabel = properties.isNotEmpty;
+                        });
+                      },
+                    )
                   ),
-                ),
-                Positioned(
+        Positioned(
                   top: 10,
                   left: 10,
                   child: FlatTypeDropdown(
@@ -145,8 +155,38 @@ class _MyHomePageState extends State<MyHomePage> {
                     },
                   ),
                 ),
-              ],
-            ),
-    );
-  }
-}
+        Positioned(
+                  top: 10,
+                  right: 10,
+                  child: LegendWidget(
+                    bands: _bands,
+                    colors: _bandColors,
+                  ),
+                ),
+            // Map widget
+            
+            // Display label on tap
+              if (_showLabel && _tappedProperties != null)
+                Positioned(
+                  left: _labelPosition.dx + 10, // Offset slightly from cursor
+                  top: _labelPosition.dy - 60,  // Position above cursor
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showLabel = false; // Hide label when tapped
+                      });
+                    },
+                    child: OnTapLabel(
+                      town: _tappedProperties!['HDB_TOWN']?.toString() ?? 'Unknown',
+                      avgPrice: (_tappedProperties!['avg_price'] is num)
+                          ? (_tappedProperties!['avg_price'] as num).toDouble()
+                          : double.tryParse(_tappedProperties!['avg_price']?.toString() ?? '0.0') ?? 0.0,
+                      extraInfo: _tappedProperties,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }
+    }
