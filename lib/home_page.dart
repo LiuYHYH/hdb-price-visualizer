@@ -9,6 +9,7 @@ import 'package:hdb_price_visualizer/widgets/map_widget.dart';
 import 'package:hdb_price_visualizer/widgets/flat_type_dropdown.dart';
 import 'package:hdb_price_visualizer/utils/color_scale.dart';
 import 'package:hdb_price_visualizer/widgets/hover_label_widget.dart';
+import 'package:hdb_price_visualizer/utils/property_polygon.dart'; // Add this import
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -64,12 +65,13 @@ class _MyHomePageState extends State<MyHomePage> {
             ? getAutoScaledColor(avgPrice, _bands, _bandColors).withOpacity(0.5)
             : Colors.grey.shade400.withOpacity(0.3);
 
-        return Polygon(
+        return PropertyPolygon(
           points: points,
           holePointsList: holes ?? [],
           color: fillColor,
           borderColor: Colors.black,
           borderStrokeWidth: 1.0,
+          properties: properties, // Attach properties here!
         );
       },
     );
